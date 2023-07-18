@@ -31,7 +31,11 @@ $ npm run start:prod
 
 The application is served on port 3080.
 
-## Swagger Docs
+## Postman Collection
+
+You can find the postman collection in [/postman-documentation/breadboard.postman_collection.json](postman-documentation/breadboard.postman_collection.json).
+
+## Swagger Documentation
 
 API endpoints are documented on swagger and can be accessed here:
 
