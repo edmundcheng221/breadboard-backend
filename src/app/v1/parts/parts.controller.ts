@@ -1,4 +1,4 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { PartsService } from './parts.service';
 import { PartQueryDTO } from './dtos/partQuery.dto';
 
@@ -8,6 +8,9 @@ export class PartsController {
 
   @Get()
   public async aggregatePartData(@Query() query: PartQueryDTO) {
+    if (!query.partNumber) {
+      throw new BadRequestException('Part Number is required');
+    }
     return await this.partsService.aggregatePartData(query?.partNumber);
   }
 }
