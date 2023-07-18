@@ -1,0 +1,36 @@
+{
+	"info": {
+		"_postman_id": "80b60b9f-277f-4bad-8cf5-27210d4798ac",
+		"name": "breadboard",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+		"_exporter_id": "21395067"
+	},
+	"item": [
+		{
+			"name": "http://localhost:3000/v1/parts?partNumber=0510210200",
+			"request": {
+				"method": "GET",
+				"header": [],
+				"url": {
+					"raw": "http://localhost:3000/v1/parts?partNumber=0510210200",
+					"protocol": "http",
+					"host": [
+						"localhost"
+					],
+					"port": "3000",
+					"path": [
+						"v1",
+						"parts"
+					],
+					"query": [
+						{
+							"key": "partNumber",
+							"value": "0510210200"
+						}
+					]
+				}
+			},
+			"response": []
+		}
+	]
+}
