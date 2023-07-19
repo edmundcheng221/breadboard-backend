@@ -8,7 +8,7 @@ Implement a REST endpoint and simple client that will accept a query parameter f
 
 ## About this application
 
-This application queries some supplier endpoints, aggregates the data a returns the data formatted.
+This application queries some supplier endpoints, aggregates the data and returns the data formatted.
 
 ## Installation
 
