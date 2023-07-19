@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import axios from 'axios';
 import * as http from 'http';
-import { AggregatedPart } from './types/parts.type';
+import { AggregatedPart, Packaging } from './types/parts.type';
 
 @Injectable()
 export class PartsService {
@@ -12,20 +12,33 @@ export class PartsService {
     'https://backend-takehome.s3.us-east-1.amazonaws.com/myarrow.json';
   private ttiApi =
     'https://backend-takehome.s3.us-east-1.amazonaws.com/tti.json';
+  public specifications = new Set();
+  public packaging: Packaging[] = [];
+  public descriptions: { [key: string]: Set<string> } = {};
+  public minLeadTime: number;
+  public aggregatedPart: AggregatedPart = {
+    name: undefined,
+    description: undefined,
+    totalStock: 0,
+    manufacturerLeadTime: undefined,
+    manufacturerName: undefined,
+    packaging: undefined,
+    productDoc: undefined,
+    productUrl: undefined,
+    productImageUrl: undefined,
+    specifications: undefined,
+    sourceParts: [],
+  };
 
-  public async aggregatePartData(
-    partNumber: string,
-  ): Promise<AggregatedPart[]> {
-    const [myArrowData, ttiData] = await Promise.all([
+  public async aggregatePartData(partNumber: string): Promise<AggregatedPart> {
+    await Promise.all([
       this.aggregateMyArrowData(partNumber),
       this.aggregateTTIData(partNumber),
     ]);
-    return [...myArrowData, ...ttiData];
+    return this.aggregatedPart;
   }
 
-  private async aggregateMyArrowData(
-    partNumber: string,
-  ): Promise<AggregatedPart[]> {
+  private async aggregateMyArrowData(partNumber: string): Promise<void> {
     const response = await this.axiosInstance.get(this.myArrowApi);
     if (response?.data?.status === 'SUCCESS') {
       const pricingData = response?.data?.pricingResponse.filter(
@@ -36,6 +49,8 @@ export class PartsService {
       const fohQuantity = pricingData
         .map((pricing) => parseInt(pricing?.fohQuantity) || 0)
         .reduce((sum, price) => sum + price, 0);
+
+      this.aggregatedPart.totalStock += fohQuantity;
 
       const minLeadTime = Math.min(
         ...pricingData
@@ -48,7 +63,12 @@ export class PartsService {
             ),
           ),
       );
-      const aggregatedParts: AggregatedPart[] = pricingData.map((item) => {
+      if (minLeadTime < this.aggregatedPart.manufacturerLeadTime) {
+        this.aggregatedPart.manufacturerLeadTime = minLeadTime;
+      }
+      this.aggregatedPart.sourceParts.push('Arrow');
+
+      pricingData.map((item) => {
         const minQuantity =
           item?.pricingTier &&
           item?.pricingTier.reduce((min, tier) => {
@@ -66,65 +86,64 @@ export class PartsService {
               ).toFixed(2),
             };
           });
-        const aggregatedPart: AggregatedPart = {
-          name: item?.suppPartNum?.name,
-          description: item?.description,
-          totalStock: fohQuantity,
-          manufacturerLeadTime: minLeadTime,
-          manufacturerName: item.manufacturer,
-          packaging: [
-            {
-              type: item?.pkg ?? 'unspecified',
-              minimumOrderQuantity: minQuantity,
-              quantityAvailable: item?.spq ?? 0,
-              unitPrice: item?.resalePrice ?? 0,
-              supplier: item?.supplier,
-              priceBreaks,
-              manufacturerLeadTime: item?.leadTime?.supplierLeadTime,
-            },
-          ],
-          productDoc:
-            item?.urlData &&
-            item?.urlData.filter((url) => url?.type === 'Datasheet').length >
-              0 &&
-            item?.urlData.filter((url) => url?.type === 'Datasheet')[0]?.value,
-          productUrl:
-            item?.urlData &&
-            item?.urlData.filter((url) => url?.type === 'Part Details').length >
-              0 &&
-            item?.urlData.filter((url) => url?.type === 'Part Details')[0]
-              ?.value,
-          productImageUrl:
-            item?.urlData &&
-            item?.urlData.filter((url) => url?.type.includes('Image')).length >
-              0 &&
-            item?.urlData.filter((url) => url?.type.includes('Image'))[0]
-              ?.value,
-          specifications: JSON.parse(
-            JSON.stringify({
-              [item?.suppPartNum?.name]:
-                item?.urlData &&
-                item?.urlData.filter((url) =>
-                  url?.type.includes('Part Details'),
-                ).length > 0 &&
-                item?.urlData.filter((url) =>
-                  url?.type.includes('Part Details'),
-                )[0]?.value,
-            }),
-          ),
-          sourceParts: ['Arrow'], // api is from Arrow Supplier
-        };
 
-        return aggregatedPart;
+        this.packaging.push({
+          type: item?.pkg ?? 'unspecified',
+          minimumOrderQuantity: minQuantity,
+          quantityAvailable: item?.spq ?? 0,
+          unitPrice: item?.resalePrice ?? 0,
+          supplier: item?.supplier,
+          priceBreaks,
+          manufacturerLeadTime: item?.leadTime?.supplierLeadTime,
+        });
+        this.aggregatedPart.packaging = this.packaging;
+
+        this.aggregatedPart.name = this.cleanPartNumber(partNumber);
+        this.aggregatedPart.manufacturerName = item?.manufacturer || '';
+        this.aggregatedPart.productDoc =
+          item?.urlData &&
+          item?.urlData.filter((url) => url?.type === 'Datasheet').length > 0 &&
+          item?.urlData.filter((url) => url?.type === 'Datasheet')[0]?.value;
+        this.aggregatedPart.productUrl =
+          item?.urlData &&
+          item?.urlData.filter((url) => url?.type === 'Part Details').length >
+            0 &&
+          item?.urlData.filter((url) => url?.type === 'Part Details')[0]?.value;
+        this.aggregatedPart.productImageUrl =
+          item?.urlData &&
+          item?.urlData.filter((url) => url?.type.includes('Image')).length >
+            0 &&
+          item?.urlData.filter((url) => url?.type.includes('Image'))[0]?.value;
+        if (!this.descriptions[this.cleanPartNumber(partNumber)]) {
+          this.descriptions[this.cleanPartNumber(partNumber)] =
+            new Set<string>();
+        }
+        this.descriptions[this.cleanPartNumber(partNumber)].add(
+          item.description,
+        );
+        this.specifications.add({
+          [this.cleanPartNumber(partNumber)]: {
+            'Part Details':
+              item?.urlData &&
+              item?.urlData.filter((url) => url?.type.includes('Part Details'))
+                .length > 0 &&
+              item?.urlData.filter((url) =>
+                url?.type.includes('Part Details'),
+              )[0]?.value,
+          },
+        });
       });
-      return aggregatedParts;
+      this.aggregatedPart.specifications = JSON.parse(
+        JSON.stringify([...this.specifications]),
+      );
+      this.aggregatedPart.description = [
+        ...this.descriptions[this.cleanPartNumber(partNumber)],
+      ].join(', ');
     }
     return;
   }
 
-  private async aggregateTTIData(
-    partNumber: string,
-  ): Promise<AggregatedPart[]> {
+  private async aggregateTTIData(partNumber: string): Promise<void> {
     const response = await this.axiosInstance.get(this.ttiApi);
     if (response?.data?.parts) {
       const data = response?.data?.parts.filter(
@@ -132,18 +151,46 @@ export class PartsService {
           this.cleanPartNumber(pricing?.ttiPartNumber) ===
           this.cleanPartNumber(partNumber),
       );
+
       const minLeadTime = Math.min(
         ...data
           .filter((pricing) => pricing?.leadTime !== undefined)
           .map((pricing) => this.convertLeadTimeToDays(pricing?.leadTime ?? 0)),
       );
-      const totalStock = data
+      if (minLeadTime < this.aggregatedPart.manufacturerLeadTime) {
+        this.aggregatedPart.manufacturerLeadTime = minLeadTime;
+      }
+
+      this.aggregatedPart.totalStock += data
         .map((part) => part?.availableToSell ?? 0)
         .reduce((sum, curr) => sum + curr, 0);
-      const aggregatedParts: AggregatedPart[] = data.map((item) => {
+
+      const firstRecord = data && data.length > 0 && data[0];
+
+      this.aggregatedPart.name = this.cleanPartNumber(partNumber);
+      this.aggregatedPart.manufacturerName = firstRecord?.manufacturer || '';
+      this.aggregatedPart.productDoc = firstRecord?.datasheetURL || '';
+      this.aggregatedPart.productUrl = firstRecord?.buyUrl || '';
+      this.aggregatedPart.productImageUrl = firstRecord?.imageURL || '';
+      this.aggregatedPart.sourceParts.push('TTI');
+
+      for (const part of data) {
+        if (!this.descriptions[this.cleanPartNumber(partNumber)]) {
+          this.descriptions[this.cleanPartNumber(partNumber)] =
+            new Set<string>();
+        }
+        this.descriptions[this.cleanPartNumber(partNumber)].add(
+          part.description,
+        );
+        this.specifications.add({
+          [this.cleanPartNumber(partNumber)]: {
+            ...part?.exportInformation,
+            ...part?.environmentalInformation,
+          },
+        });
         const priceBreaks =
-          item?.pricing?.quantityPriceBreaks &&
-          item?.pricing?.quantityPriceBreaks.map(
+          part?.pricing?.quantityPriceBreaks &&
+          part?.pricing?.quantityPriceBreaks.map(
             (tier: { [key: string]: string | number }) => {
               return {
                 breakQuantity: tier.quantity,
@@ -155,41 +202,25 @@ export class PartsService {
               };
             },
           );
-        const aggregatedPart: AggregatedPart = {
-          name: item?.ttiPartNumber,
-          description: item?.description,
-          totalStock,
-          manufacturerLeadTime: minLeadTime,
-          manufacturerName: item?.manufacturer,
-          packaging: [
-            {
-              type: item?.packaging ?? 'unspecified',
-              minimumOrderQuantity: item?.salesMinimum,
-              quantityAvailable: item?.availableToSell ?? 0,
-              unitPrice: undefined, // smallest quantity is 100
-              supplier: item?.manufacturer,
-              priceBreaks,
-              manufacturerLeadTime: item?.leadTime?.supplierLeadTime,
-            },
-          ],
-          productDoc: item?.datasheetURL,
-          productUrl: item?.buyUrl,
-          productImageUrl: item?.imageURL,
-          specifications: JSON.parse(
-            JSON.stringify({
-              [item?.ttiPartNumber]: {
-                ...item?.exportInformation,
-                ...item?.environmentalInformation,
-              },
-            }),
-          ),
-          sourceParts: ['TTI'], // api is from TTI Supplier
-        };
-        return aggregatedPart;
-      });
-      return aggregatedParts;
+        this.packaging.push({
+          type: part?.packaging ?? 'unspecified',
+          minimumOrderQuantity: part?.salesMinimum,
+          quantityAvailable: part?.availableToSell ?? 0,
+          unitPrice: priceBreaks[0].unitPrice ?? 'Unavailable',
+          supplier: part?.manufacturer,
+          priceBreaks,
+          manufacturerLeadTime: part?.leadTime?.supplierLeadTime,
+        });
+        this.aggregatedPart.packaging = this.packaging;
+      }
+      this.aggregatedPart.description = [
+        ...this.descriptions[this.cleanPartNumber(partNumber)],
+      ].join(', ');
+      this.aggregatedPart.specifications = JSON.parse(
+        JSON.stringify([...this.specifications]),
+      );
     }
-    return [];
+    return;
   }
 
   private cleanPartNumber(partNumber: string): string {
