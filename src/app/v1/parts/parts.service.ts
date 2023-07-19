@@ -63,7 +63,10 @@ export class PartsService {
             ),
           ),
       );
-      if (minLeadTime < this.aggregatedPart.manufacturerLeadTime) {
+      if (
+        !this.aggregatedPart.manufacturerLeadTime ||
+        minLeadTime < this.aggregatedPart.manufacturerLeadTime
+      ) {
         this.aggregatedPart.manufacturerLeadTime = minLeadTime;
       }
       this.aggregatedPart.sourceParts.push('Arrow');
@@ -157,7 +160,10 @@ export class PartsService {
           .filter((pricing) => pricing?.leadTime !== undefined)
           .map((pricing) => this.convertLeadTimeToDays(pricing?.leadTime ?? 0)),
       );
-      if (minLeadTime < this.aggregatedPart.manufacturerLeadTime) {
+      if (
+        !this.aggregatedPart.manufacturerLeadTime ||
+        minLeadTime < this.aggregatedPart.manufacturerLeadTime
+      ) {
         this.aggregatedPart.manufacturerLeadTime = minLeadTime;
       }
 
